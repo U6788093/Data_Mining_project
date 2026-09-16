@@ -1,9 +1,6 @@
 """Reproducible ITCS444 Project 1 analysis with no third-party ML packages.
-
-Run this script with Python 3. It cleans the supplied combined dataset,
-computes EDA statistics, and evaluates a stratified multinomial Naive Bayes
-baseline for the three annotation classes.
 """
+
 from __future__ import annotations
 
 import csv
@@ -14,7 +11,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-DATA_PATH = Path(r"C:\Academic\data\twitter dataset\twitter_parsed_dataset.csv")
+DATA_PATH = Path("data") / "twitter_parsed_dataset.csv"
 OUTPUT_DIR = Path(__file__).resolve().parent / "analysis_assets"
 RANDOM_STATE = 444
 CLASS_ORDER = ["none", "racism", "sexism"]
