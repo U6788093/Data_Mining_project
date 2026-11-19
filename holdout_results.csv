@@ -1,0 +1,6 @@
+model,best_params,accuracy,balanced_acc,macro_f1
+Decision Tree,"{'m__criterion': 'gini', 'm__max_depth': 10, 'm__min_samples_leaf': 1}",0.9884,0.9573,0.9571
+Random Forest,"{'m__max_depth': None, 'm__min_samples_leaf': 1}",0.9855,0.9234,0.9427
+Logistic Regression,{'m__C': 100},0.9393,0.9335,0.9064
+kNN,"{'m__n_neighbors': 7, 'm__weights': 'uniform'}",0.9104,0.6985,0.7628
+Naive Bayes,{'m__alpha': 0.1},0.8642,0.6386,0.6929

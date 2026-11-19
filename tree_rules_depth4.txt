@@ -1,0 +1,16 @@
+|--- persons <= 0.50
+|   |--- class: unacc
+|--- persons >  0.50
+|   |--- safety <= 0.50
+|   |   |--- class: unacc
+|   |--- safety >  0.50
+|   |   |--- buying <= 1.50
+|   |   |   |--- maint <= 1.50
+|   |   |   |   |--- class: good
+|   |   |   |--- maint >  1.50
+|   |   |   |   |--- class: acc
+|   |   |--- buying >  1.50
+|   |   |   |--- maint <= 2.50
+|   |   |   |   |--- class: acc
+|   |   |   |--- maint >  2.50
+|   |   |   |   |--- class: unacc

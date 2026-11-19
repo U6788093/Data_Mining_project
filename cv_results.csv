@@ -1,0 +1,7 @@
+model,accuracy_mean,balanced_acc_mean,macro_f1_mean,macro_f1_std
+Decision Tree,0.9777,0.9507,0.9506,0.0276
+Random Forest,0.9806,0.9496,0.9482,0.0309
+Logistic Regression,0.934,0.8834,0.8823,0.0377
+kNN,0.9317,0.7031,0.7477,0.0568
+Naive Bayes,0.8594,0.6179,0.6652,0.0428
+Baseline (majority),0.7002,0.25,0.2059,0.0003

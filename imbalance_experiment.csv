@@ -1,0 +1,7 @@
+setting,macro_f1,F1_unacc,F1_acc,F1_good,F1_vgood
+Decision Tree cw=None,0.946,0.991,0.953,0.872,0.969
+Random Forest cw=None,0.96,0.994,0.969,0.948,0.93
+Logistic Reg cw=None,0.884,0.965,0.866,0.821,0.885
+Decision Tree cw=balanced,0.947,0.991,0.957,0.882,0.956
+Random Forest cw=balanced,0.957,0.984,0.943,0.932,0.97
+Logistic Reg cw=balanced,0.906,0.965,0.876,0.863,0.92

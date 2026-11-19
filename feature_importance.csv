@@ -1,0 +1,7 @@
+,rf_impurity,permutation_macroF1_drop
+safety,0.3064,0.4644
+buying,0.144,0.3398
+maint,0.159,0.3352
+persons,0.2372,0.3
+lug_boot,0.0881,0.2448
+doors,0.0653,0.0451

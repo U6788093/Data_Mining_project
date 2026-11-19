@@ -1,0 +1,11 @@
+Decision Tree {'m__criterion': 'gini', 'm__max_depth': 10, 'm__min_samples_leaf': 1}
+              precision    recall  f1-score   support
+
+       unacc      1.000     0.996     0.998       242
+         acc      0.974     0.987     0.981        77
+        good      0.875     1.000     0.933        14
+       vgood      1.000     0.846     0.917        13
+
+    accuracy                          0.988       346
+   macro avg      0.962     0.957     0.957       346
+weighted avg      0.989     0.988     0.988       346

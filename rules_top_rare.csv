@@ -1,0 +1,13 @@
+rule,class,n_cars,support,confidence,lift
+buying=high AND maint=high AND persons=4 AND safety=high,acc,12,0.007,1.0,4.5
+buying=high AND maint=low AND persons=4 AND safety=high,acc,12,0.007,1.0,4.5
+buying=high AND maint=med AND persons=4 AND safety=high,acc,12,0.007,1.0,4.5
+buying=low AND maint=high AND persons=4 AND safety=med,acc,12,0.007,1.0,4.5
+buying=low AND lug_boot=big AND maint=low AND safety=med,good,8,0.005,0.667,16.696
+buying=low AND lug_boot=big AND maint=med AND safety=med,good,8,0.005,0.667,16.696
+buying=med AND lug_boot=big AND maint=low AND safety=med,good,8,0.005,0.667,16.696
+buying=low AND maint=low AND persons=more AND safety=med,good,7,0.004,0.583,14.609
+buying=low AND lug_boot=big AND persons=4 AND safety=high,vgood,12,0.007,0.75,19.938
+buying=low AND lug_boot=big AND persons=more AND safety=high,vgood,12,0.007,0.75,19.938
+buying=low AND lug_boot=big AND maint=high AND safety=high,vgood,8,0.005,0.667,17.723
+buying=low AND lug_boot=big AND maint=low AND safety=high,vgood,8,0.005,0.667,17.723
