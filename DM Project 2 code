@@ -1,14 +1,3 @@
-# %% [markdown]
-# # ITCS444 Project 2 - Car Evaluation (Model Implementation, Evaluation, Insights)
-# Dataset: UCI Car Evaluation - 1,728 cars, 6 categorical inputs, 4-class target.
-# Run:  python car_project2.py [path/to/car.data]     ->  results in ./outputs_project2/
-#
-# Techniques: Classification (Decision Tree, Random Forest, kNN, Naive Bayes, Logistic Regression)
-#             + Association Rule Mining (Apriori).  Clustering is not used: the target is known.
-# Evaluation: nested repeated stratified 10-fold CV, held-out 80/20 test, per-class P/R/F1,
-#             confusion matrix, permutation importance, rule support/confidence/lift.
-
-# %%
 import sys, os, warnings
 import numpy as np, pandas as pd
 from sklearn.model_selection import (train_test_split, RepeatedStratifiedKFold, StratifiedKFold,
@@ -32,9 +21,6 @@ SEED = 42
 DATA = sys.argv[1] if len(sys.argv) > 1 else "/mnt/user-data/uploads/car.data"
 OUT = "outputs_project2"; os.makedirs(OUT, exist_ok=True)
 
-# %% [markdown]
-# ## 1. Load data
-# %%
 cols = ["buying", "maint", "doors", "persons", "lug_boot", "safety", "class"]
 df = pd.read_csv(DATA, header=None, names=cols); df["doors"] = df["doors"].astype(str)
 ORDER = {"buying": ["low", "med", "high", "vhigh"], "maint": ["low", "med", "high", "vhigh"],
@@ -45,12 +31,6 @@ X, y = df[FEATS], df["class"]
 print("Shape", df.shape, "| missing", int(df.isna().sum().sum()), "| duplicates", int(df.duplicated().sum()))
 print(y.value_counts().reindex(CLASSES).to_string())
 
-# %% [markdown]
-# ## 2. Classification: models + nested cross-validation
-# Encoders are inside the pipelines, so nothing leaks between folds. Tuning (inner 5-fold) is
-# repeated inside every outer fold, so reported scores are not inflated by hyper-parameter search.
-# Metrics: accuracy (misleading here: majority class = 70%), balanced accuracy and macro-F1.
-# %%
 ord_pre = ColumnTransformer([("o", OrdinalEncoder(categories=[ORDER[f] for f in FEATS]), FEATS)])
 ohe_pre = ColumnTransformer([("o", OneHotEncoder(categories=[ORDER[f] for f in FEATS]), FEATS)])
 def models():
@@ -82,9 +62,6 @@ for name, (pipe, grid) in models().items():
 cv = pd.DataFrame(rows).sort_values("macro_f1_mean", ascending=False).round(4)
 cv.to_csv(f"{OUT}/cv_results.csv", index=False)
 
-# %% [markdown]
-# ## 3. Held-out test (80/20 stratified): tune on train only, score test once
-# %%
 X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, stratify=y, random_state=SEED)
 fitted, hrows = {}, []
 for name, (pipe, grid) in models().items():
@@ -111,9 +88,6 @@ cm = pd.DataFrame(confusion_matrix(y, oof, labels=CLASSES), index=[f"true_{c}" f
 cm.to_csv(f"{OUT}/confusion_matrix_oof.csv"); print("\nOut-of-fold confusion matrix:\n", cm.to_string())
 errors = int((oof != y).sum()); print(f"Misclassified: {errors}/{len(y)}")
 
-# %% [markdown]
-# ## 4. Insight generation: what drives acceptability?
-# %%
 dt = Pipeline([("p", ord_pre), ("m", DecisionTreeClassifier(max_depth=4, min_samples_leaf=5,
                criterion="entropy", random_state=SEED))]).fit(X, y)
 rules_txt = export_text(dt.named_steps["m"], feature_names=FEATS)
@@ -137,11 +111,6 @@ print(pd.crosstab(ok["safety"], ok["class"], normalize="index").reindex(columns=
 print("\nvgood cars: attribute profile")
 print(df[df["class"] == "vgood"][FEATS].apply(lambda c: c.value_counts(normalize=True).round(2).to_dict()).to_string())
 
-# %% [markdown]
-# ## 5. Association rules (Apriori) - items are "attribute=value", class included
-# Pass A (support >= 3%) finds the broad rules. Rare classes (good/vgood ~4% each) need a
-# lower support threshold, so Pass B uses support >= 0.3% (>= 5 cars) and confidence >= 50%.
-# %%
 basket = pd.get_dummies(df[FEATS + ["class"]].astype(str), prefix_sep="=").astype(bool)
 def class_rules(min_sup, min_conf, max_len):
     fi = apriori(basket, min_support=min_sup, use_colnames=True, max_len=max_len)
@@ -166,9 +135,6 @@ print("\nPass B - best rules for rarer classes:\n", top.round(3).to_string(index
 print("Rules found per class (conf>=0.5):", B["class"].value_counts().to_dict())
 top.round(3).to_csv(f"{OUT}/rules_top_rare.csv", index=False)
 
-# %% [markdown]
-# ## 6. Class-imbalance experiment (class_weight) - does it help rare classes?
-# %%
 def oof_f1(model, label):
     pr = cross_val_predict(model, X, y, cv=StratifiedKFold(10, shuffle=True, random_state=SEED))
     f = f1_score(y, pr, labels=CLASSES, average=None)
