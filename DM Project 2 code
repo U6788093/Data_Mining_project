@@ -1,0 +1,184 @@
+# %% [markdown]
+# # ITCS444 Project 2 - Car Evaluation (Model Implementation, Evaluation, Insights)
+# Dataset: UCI Car Evaluation - 1,728 cars, 6 categorical inputs, 4-class target.
+# Run:  python car_project2.py [path/to/car.data]     ->  results in ./outputs_project2/
+#
+# Techniques: Classification (Decision Tree, Random Forest, kNN, Naive Bayes, Logistic Regression)
+#             + Association Rule Mining (Apriori).  Clustering is not used: the target is known.
+# Evaluation: nested repeated stratified 10-fold CV, held-out 80/20 test, per-class P/R/F1,
+#             confusion matrix, permutation importance, rule support/confidence/lift.
+
+# %%
+import sys, os, warnings
+import numpy as np, pandas as pd
+from sklearn.model_selection import (train_test_split, RepeatedStratifiedKFold, StratifiedKFold,
+                                     cross_validate, cross_val_predict, GridSearchCV)
+from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.dummy import DummyClassifier
+from sklearn.tree import DecisionTreeClassifier, export_text
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import CategoricalNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (accuracy_score, balanced_accuracy_score, f1_score,
+                             confusion_matrix, classification_report)
+from sklearn.inspection import permutation_importance
+from mlxtend.frequent_patterns import apriori, association_rules   # pip install mlxtend
+
+warnings.filterwarnings("ignore")
+SEED = 42
+DATA = sys.argv[1] if len(sys.argv) > 1 else "/mnt/user-data/uploads/car.data"
+OUT = "outputs_project2"; os.makedirs(OUT, exist_ok=True)
+
+# %% [markdown]
+# ## 1. Load data
+# %%
+cols = ["buying", "maint", "doors", "persons", "lug_boot", "safety", "class"]
+df = pd.read_csv(DATA, header=None, names=cols); df["doors"] = df["doors"].astype(str)
+ORDER = {"buying": ["low", "med", "high", "vhigh"], "maint": ["low", "med", "high", "vhigh"],
+         "doors": ["2", "3", "4", "5more"], "persons": ["2", "4", "more"],
+         "lug_boot": ["small", "med", "big"], "safety": ["low", "med", "high"]}
+CLASSES = ["unacc", "acc", "good", "vgood"]; FEATS = list(ORDER)
+X, y = df[FEATS], df["class"]
+print("Shape", df.shape, "| missing", int(df.isna().sum().sum()), "| duplicates", int(df.duplicated().sum()))
+print(y.value_counts().reindex(CLASSES).to_string())
+
+# %% [markdown]
+# ## 2. Classification: models + nested cross-validation
+# Encoders are inside the pipelines, so nothing leaks between folds. Tuning (inner 5-fold) is
+# repeated inside every outer fold, so reported scores are not inflated by hyper-parameter search.
+# Metrics: accuracy (misleading here: majority class = 70%), balanced accuracy and macro-F1.
+# %%
+ord_pre = ColumnTransformer([("o", OrdinalEncoder(categories=[ORDER[f] for f in FEATS]), FEATS)])
+ohe_pre = ColumnTransformer([("o", OneHotEncoder(categories=[ORDER[f] for f in FEATS]), FEATS)])
+def models():
+    return {
+     "Baseline (majority)": (Pipeline([("p", ord_pre), ("m", DummyClassifier(strategy="most_frequent"))]), {}),
+     "Decision Tree": (Pipeline([("p", ord_pre), ("m", DecisionTreeClassifier(random_state=SEED))]),
+        {"m__max_depth": [4, 6, 8, 10, None], "m__min_samples_leaf": [1, 2, 5], "m__criterion": ["gini", "entropy"]}),
+     "Random Forest": (Pipeline([("p", ord_pre), ("m", RandomForestClassifier(n_estimators=100, random_state=SEED))]),
+        {"m__max_depth": [None, 10], "m__min_samples_leaf": [1, 2]}),
+     "kNN": (Pipeline([("p", ohe_pre), ("m", KNeighborsClassifier())]),
+        {"m__n_neighbors": [1, 3, 5, 7, 11], "m__weights": ["uniform", "distance"]}),
+     "Naive Bayes": (Pipeline([("p", ord_pre), ("m", CategoricalNB(min_categories=[len(ORDER[f]) for f in FEATS]))]),
+        {"m__alpha": [0.1, 0.5, 1.0]}),
+     "Logistic Regression": (Pipeline([("p", ohe_pre), ("m", LogisticRegression(max_iter=3000))]),
+        {"m__C": [0.1, 1, 10, 100]}),
+    }
+scoring = {"accuracy": "accuracy", "balanced_acc": "balanced_accuracy", "macro_f1": "f1_macro"}
+outer = RepeatedStratifiedKFold(n_splits=10, n_repeats=2, random_state=SEED)
+inner = StratifiedKFold(5, shuffle=True, random_state=SEED)
+
+rows = []
+for name, (pipe, grid) in models().items():
+    est = GridSearchCV(pipe, grid, cv=inner, scoring="f1_macro") if grid else pipe
+    r = cross_validate(est, X, y, cv=outer, scoring=scoring)
+    rows.append({"model": name, **{f"{k}_mean": r[f"test_{k}"].mean() for k in scoring},
+                 "macro_f1_std": r["test_macro_f1"].std()})
+    print(f"{name:22s} acc={rows[-1]['accuracy_mean']:.4f} bal_acc={rows[-1]['balanced_acc_mean']:.4f} "
+          f"macroF1={rows[-1]['macro_f1_mean']:.4f} +/-{rows[-1]['macro_f1_std']:.4f}", flush=True)
+cv = pd.DataFrame(rows).sort_values("macro_f1_mean", ascending=False).round(4)
+cv.to_csv(f"{OUT}/cv_results.csv", index=False)
+
+# %% [markdown]
+# ## 3. Held-out test (80/20 stratified): tune on train only, score test once
+# %%
+X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, stratify=y, random_state=SEED)
+fitted, hrows = {}, []
+for name, (pipe, grid) in models().items():
+    if not grid: continue
+    gs = GridSearchCV(pipe, grid, cv=inner, scoring="f1_macro").fit(X_tr, y_tr); fitted[name] = gs
+    p = gs.predict(X_te)
+    hrows.append({"model": name, "best_params": gs.best_params_, "accuracy": accuracy_score(y_te, p),
+                  "balanced_acc": balanced_accuracy_score(y_te, p), "macro_f1": f1_score(y_te, p, average="macro")})
+hold = pd.DataFrame(hrows).sort_values("macro_f1", ascending=False).round(4)
+hold.to_csv(f"{OUT}/holdout_results.csv", index=False)
+print("\nHeld-out test:\n", hold.drop(columns="best_params").to_string(index=False))
+
+best_name = cv[cv["model"] != "Baseline (majority)"].iloc[0]["model"]
+best = fitted[best_name]; p = best.predict(X_te)
+rep = classification_report(y_te, p, labels=CLASSES, digits=3, zero_division=0)
+print(f"\nBest by CV macro-F1: {best_name} {best.best_params_}\n{rep}")
+open(f"{OUT}/classification_report.txt", "w").write(f"{best_name} {best.best_params_}\n{rep}")
+
+# Confusion matrix from out-of-fold predictions on all 1,728 cars (more stable than n=346)
+oof = cross_val_predict(GridSearchCV(*models()[best_name], cv=inner, scoring="f1_macro"), X, y,
+                        cv=StratifiedKFold(10, shuffle=True, random_state=SEED))
+cm = pd.DataFrame(confusion_matrix(y, oof, labels=CLASSES), index=[f"true_{c}" for c in CLASSES],
+                  columns=[f"pred_{c}" for c in CLASSES])
+cm.to_csv(f"{OUT}/confusion_matrix_oof.csv"); print("\nOut-of-fold confusion matrix:\n", cm.to_string())
+errors = int((oof != y).sum()); print(f"Misclassified: {errors}/{len(y)}")
+
+# %% [markdown]
+# ## 4. Insight generation: what drives acceptability?
+# %%
+dt = Pipeline([("p", ord_pre), ("m", DecisionTreeClassifier(max_depth=4, min_samples_leaf=5,
+               criterion="entropy", random_state=SEED))]).fit(X, y)
+rules_txt = export_text(dt.named_steps["m"], feature_names=FEATS)
+open(f"{OUT}/tree_rules_depth4.txt", "w").write(rules_txt)
+print(f"\nDepth-4 tree (interpretable summary) accuracy on all data: {dt.score(X, y):.3f}\n{rules_txt}")
+
+rf = fitted["Random Forest"].best_estimator_
+perm = permutation_importance(rf, X_te, y_te, n_repeats=30, random_state=SEED, scoring="f1_macro")
+imp = pd.DataFrame({"rf_impurity": rf.named_steps["m"].feature_importances_,
+                    "permutation_macroF1_drop": perm.importances_mean}, index=FEATS)
+imp = imp.sort_values("permutation_macroF1_drop", ascending=False).round(4)
+imp.to_csv(f"{OUT}/feature_importance.csv"); print("\nFeature importance:\n", imp)
+
+print("\nKnock-out checks (share of 'unacc'):")
+for f, v in [("safety", "low"), ("persons", "2")]:
+    s = df[df[f] == v]; print(f"  {f}={v}: {(s['class']=='unacc').mean():.1%} of {len(s)} cars")
+ok = df[(df.safety != "low") & (df.persons != "2")]
+print(f"Cars passing both gates: {len(ok)} ({len(ok)/len(df):.1%}); unacc among them: {(ok['class']=='unacc').mean():.1%}")
+print("\nClass mix by safety x persons (rows = safety, among 4/more seaters):")
+print(pd.crosstab(ok["safety"], ok["class"], normalize="index").reindex(columns=CLASSES).round(3).to_string())
+print("\nvgood cars: attribute profile")
+print(df[df["class"] == "vgood"][FEATS].apply(lambda c: c.value_counts(normalize=True).round(2).to_dict()).to_string())
+
+# %% [markdown]
+# ## 5. Association rules (Apriori) - items are "attribute=value", class included
+# Pass A (support >= 3%) finds the broad rules. Rare classes (good/vgood ~4% each) need a
+# lower support threshold, so Pass B uses support >= 0.3% (>= 5 cars) and confidence >= 50%.
+# %%
+basket = pd.get_dummies(df[FEATS + ["class"]].astype(str), prefix_sep="=").astype(bool)
+def class_rules(min_sup, min_conf, max_len):
+    fi = apriori(basket, min_support=min_sup, use_colnames=True, max_len=max_len)
+    r = association_rules(fi, metric="confidence", min_threshold=min_conf)
+    r = r[r["consequents"].apply(lambda s: len(s) == 1 and next(iter(s)).startswith("class="))].copy()
+    r["rule"] = r["antecedents"].apply(lambda s: " AND ".join(sorted(s)))
+    r["class"] = r["consequents"].apply(lambda s: next(iter(s)).split("=")[1])
+    r["n_cars"] = (r["support"] * len(df)).round().astype(int)
+    return len(fi), r[["rule", "class", "n_cars", "support", "confidence", "lift"]]
+nA, A = class_rules(0.03, 0.80, 4)
+nB, B = class_rules(0.003, 0.50, 5)
+print(f"\nPass A: {nA} itemsets, {len(A)} rules | Pass B: {nB} itemsets, {len(B)} rules")
+A.sort_values(["lift", "support"], ascending=False).round(3).to_csv(f"{OUT}/rules_pass_A.csv", index=False)
+B.sort_values(["lift", "support"], ascending=False).round(3).to_csv(f"{OUT}/rules_pass_B_rare.csv", index=False)
+print("\nPass A - top rules for 'unacc' by support:\n",
+      A[A["class"] == "unacc"].sort_values("support", ascending=False).head(5).round(3).to_string(index=False))
+rare = B[B["class"].isin(["good", "vgood", "acc"])]
+# per class: highest-confidence rules first, then highest support, then simplest
+rare = rare.assign(L=rare["rule"].str.count("AND")).sort_values(["class", "confidence", "support", "L"], ascending=[True, False, False, True])
+top = pd.concat([rare[rare["class"] == c].head(4) for c in ["acc", "good", "vgood"]]).drop(columns="L")
+print("\nPass B - best rules for rarer classes:\n", top.round(3).to_string(index=False))
+print("Rules found per class (conf>=0.5):", B["class"].value_counts().to_dict())
+top.round(3).to_csv(f"{OUT}/rules_top_rare.csv", index=False)
+
+# %% [markdown]
+# ## 6. Class-imbalance experiment (class_weight) - does it help rare classes?
+# %%
+def oof_f1(model, label):
+    pr = cross_val_predict(model, X, y, cv=StratifiedKFold(10, shuffle=True, random_state=SEED))
+    f = f1_score(y, pr, labels=CLASSES, average=None)
+    return {"setting": label, "macro_f1": f1_score(y, pr, average="macro"), **{f"F1_{c}": v for c, v in zip(CLASSES, f)}}
+g = lambda n: {k.split("__")[1]: v for k, v in fitted[n].best_params_.items()}
+imb = []
+for cw in [None, "balanced"]:
+    imb.append(oof_f1(Pipeline([("p", ord_pre), ("m", DecisionTreeClassifier(random_state=SEED, class_weight=cw, **g("Decision Tree")))]), f"Decision Tree cw={cw}"))
+    imb.append(oof_f1(Pipeline([("p", ord_pre), ("m", RandomForestClassifier(n_estimators=100, random_state=SEED, class_weight=cw, **g("Random Forest")))]), f"Random Forest cw={cw}"))
+    imb.append(oof_f1(Pipeline([("p", ohe_pre), ("m", LogisticRegression(max_iter=3000, class_weight=cw, **g("Logistic Regression")))]), f"Logistic Reg cw={cw}"))
+imb = pd.DataFrame(imb).round(3); imb.to_csv(f"{OUT}/imbalance_experiment.csv", index=False)
+print("\nImbalance experiment (out-of-fold):\n", imb.to_string(index=False))
+print(f"\nDone. Tables saved in ./{OUT}/")
